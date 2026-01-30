@@ -10,6 +10,14 @@ output_dir: /home/dataset-local/uav_epona_dataset
 convert_grayscale_to_rgb: true  # Convert grayscale images to RGB (3 channels)
 image_quality: 95               # JPEG quality (1-100)
 
+# Image resize settings (for faster training data loading)
+# Set to null to keep original size, or specify [height, width]
+# Recommended sizes:
+#   - [512, 1024]: Match NuPlan for best pretrained model compatibility
+#   - [480, 768]: Closer to EuRoC original aspect ratio (480x752)
+resize_images: [512, 1024]      # [height, width] or null
+resize_interpolation: 'linear'  # 'linear', 'cubic', 'nearest', 'area', 'lanczos'
+
 # Frame rate settings
 # Set to null to keep original frame rate (~20 Hz for EuRoC)
 # Set to 10 to match NuPlan's frame rate
@@ -57,14 +65,14 @@ datasets:
 
   # Vicon Room 2 sequences (if extracted from zip)
   # Uncomment the following lines after extracting vicon_room2.zip
-  # - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_01_easy/V2_01_easy.bag
-  #   scene_name: V2_01_easy
-  #   dataset_type: vicon_room
-  #
-  # - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_02_medium/V2_02_medium.bag
-  #   scene_name: V2_02_medium
-  #   dataset_type: vicon_room
-  #
-  # - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_03_difficult/V2_03_difficult.bag
-  #   scene_name: V2_03_difficult
-  #   dataset_type: vicon_room
+  - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_01_easy/V2_01_easy.bag
+    scene_name: V2_01_easy
+    dataset_type: vicon_room
+  
+  - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_02_medium/V2_02_medium.bag
+    scene_name: V2_02_medium
+    dataset_type: vicon_room
+  
+  - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_03_difficult/V2_03_difficult.bag
+    scene_name: V2_03_difficult
+    dataset_type: vicon_room

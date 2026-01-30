@@ -110,6 +110,15 @@ class EurocBagConverter:
         }
     }
     
+    # Interpolation methods mapping
+    INTERPOLATION_METHODS = {
+        'nearest': cv2.INTER_NEAREST,
+        'linear': cv2.INTER_LINEAR,
+        'cubic': cv2.INTER_CUBIC,
+        'area': cv2.INTER_AREA,
+        'lanczos': cv2.INTER_LANCZOS4,
+    }
+    
     def __init__(
         self,
         bag_path: str,
@@ -119,6 +128,8 @@ class EurocBagConverter:
         convert_grayscale_to_rgb: bool = True,
         image_quality: int = 95,
         target_fps: Optional[float] = None,
+        resize_images: Optional[List[int]] = None,
+        resize_interpolation: str = 'linear',
     ):
         """
         Initialize the converter.
@@ -131,6 +142,8 @@ class EurocBagConverter:
             convert_grayscale_to_rgb: Whether to convert grayscale images to RGB
             image_quality: JPEG quality (1-100)
             target_fps: Target frame rate for downsampling (None = keep original)
+            resize_images: Target size as [height, width] or None to keep original
+            resize_interpolation: Interpolation method ('nearest', 'linear', 'cubic', 'area', 'lanczos')
         """
         self.bag_path = bag_path
         self.output_dir = Path(output_dir)
@@ -138,6 +151,8 @@ class EurocBagConverter:
         self.convert_grayscale_to_rgb = convert_grayscale_to_rgb
         self.image_quality = image_quality
         self.target_fps = target_fps
+        self.resize_images = resize_images
+        self.resize_interpolation = self.INTERPOLATION_METHODS.get(resize_interpolation, cv2.INTER_LINEAR)
         
         # Auto-detect dataset type if needed
         if dataset_type == 'auto':
@@ -174,6 +189,9 @@ class EurocBagConverter:
             List of (timestamp_us, image_filename) tuples
         """
         print("Extracting images...")
+        if self.resize_images:
+            print(f"  Resize enabled: {self.resize_images[1]}x{self.resize_images[0]} (WxH)")
+        
         images_info = []
         topics = self.TOPICS[self.dataset_type]
         
@@ -192,6 +210,12 @@ class EurocBagConverter:
                 # Convert grayscale to RGB if needed
                 if self.convert_grayscale_to_rgb and len(cv_image.shape) == 2:
                     cv_image = cv2.cvtColor(cv_image, cv2.COLOR_GRAY2RGB)
+                
+                # Resize image if configured (resize before saving for faster training)
+                if self.resize_images is not None:
+                    target_h, target_w = self.resize_images
+                    cv_image = cv2.resize(cv_image, (target_w, target_h), 
+                                         interpolation=self.resize_interpolation)
                 
                 # Generate filename based on timestamp
                 timestamp_ns = msg.header.stamp.to_nsec()
@@ -617,6 +641,8 @@ def convert_all_datasets(config_path: str):
             convert_grayscale_to_rgb=config.get('convert_grayscale_to_rgb', True),
             image_quality=config.get('image_quality', 95),
             target_fps=config.get('target_fps', None),
+            resize_images=config.get('resize_images', None),
+            resize_interpolation=config.get('resize_interpolation', 'linear'),
         )
         
         sequence_meta = converter.convert()
@@ -688,6 +714,21 @@ def main():
         default=95,
         help='JPEG quality (1-100)'
     )
+    parser.add_argument(
+        '--resize',
+        type=int,
+        nargs=2,
+        metavar=('HEIGHT', 'WIDTH'),
+        default=None,
+        help='Resize images to [height, width] (e.g., --resize 512 1024)'
+    )
+    parser.add_argument(
+        '--resize_interpolation',
+        type=str,
+        choices=['nearest', 'linear', 'cubic', 'area', 'lanczos'],
+        default='linear',
+        help='Interpolation method for resizing'
+    )
     
     args = parser.parse_args()
     
@@ -705,6 +746,8 @@ def main():
             convert_grayscale_to_rgb=args.convert_grayscale_to_rgb,
             image_quality=args.image_quality,
             target_fps=args.target_fps,
+            resize_images=args.resize,
+            resize_interpolation=args.resize_interpolation,
         )
         
         sequence_meta = converter.convert()
