@@ -1,0 +1,70 @@
+# UAV to Epona Dataset Conversion Configuration
+# =============================================
+# This config file specifies all the UAV ROS bag datasets to convert
+# and the output format settings.
+
+# Output directory for converted Epona dataset
+output_dir: /home/dataset-local/uav_epona_dataset
+
+# Image conversion settings
+convert_grayscale_to_rgb: true  # Convert grayscale images to RGB (3 channels)
+image_quality: 95               # JPEG quality (1-100)
+
+# Frame rate settings
+# Set to null to keep original frame rate (~20 Hz for EuRoC)
+# Set to 10 to match NuPlan's frame rate
+target_fps: 10
+
+# List of datasets to convert
+# Each entry specifies:
+#   - bag_path: Path to the ROS bag file
+#   - scene_name: Name for this scene in the output
+#   - dataset_type: 'machine_hall', 'vicon_room', or 'auto'
+datasets:
+  # Machine Hall sequences
+  - bag_path: /home/dataset-local/uav_datasets/machine_hall/MH_01_easy/MH_01_easy.bag
+    scene_name: MH_01_easy
+    dataset_type: machine_hall
+
+  - bag_path: /home/dataset-local/uav_datasets/machine_hall/MH_02_easy/MH_02_easy.bag
+    scene_name: MH_02_easy
+    dataset_type: machine_hall
+
+  - bag_path: /home/dataset-local/uav_datasets/machine_hall/MH_03_medium/MH_03_medium.bag
+    scene_name: MH_03_medium
+    dataset_type: machine_hall
+
+  - bag_path: /home/dataset-local/uav_datasets/machine_hall/MH_04_difficult/MH_04_difficult.bag
+    scene_name: MH_04_difficult
+    dataset_type: machine_hall
+
+  - bag_path: /home/dataset-local/uav_datasets/machine_hall/MH_05_difficult/MH_05_difficult.bag
+    scene_name: MH_05_difficult
+    dataset_type: machine_hall
+
+  # Vicon Room 1 sequences
+  - bag_path: /home/dataset-local/uav_datasets/vicon_room1/V1_01_easy/V1_01_easy.bag
+    scene_name: V1_01_easy
+    dataset_type: vicon_room
+
+  - bag_path: /home/dataset-local/uav_datasets/vicon_room1/V1_02_medium/V1_02_medium.bag
+    scene_name: V1_02_medium
+    dataset_type: vicon_room
+
+  - bag_path: /home/dataset-local/uav_datasets/vicon_room1/V1_03_difficult/V1_03_difficult.bag
+    scene_name: V1_03_difficult
+    dataset_type: vicon_room
+
+  # Vicon Room 2 sequences (if extracted from zip)
+  # Uncomment the following lines after extracting vicon_room2.zip
+  # - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_01_easy/V2_01_easy.bag
+  #   scene_name: V2_01_easy
+  #   dataset_type: vicon_room
+  #
+  # - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_02_medium/V2_02_medium.bag
+  #   scene_name: V2_02_medium
+  #   dataset_type: vicon_room
+  #
+  # - bag_path: /home/dataset-local/uav_datasets/vicon_room2/V2_03_difficult/V2_03_difficult.bag
+  #   scene_name: V2_03_difficult
+  #   dataset_type: vicon_room
