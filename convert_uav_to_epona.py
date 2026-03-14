@@ -94,7 +94,7 @@ class PoseData:
 class EurocBagConverter:
     """Converter for EuRoC MAV dataset ROS bags to Epona format."""
     
-    # ROS topics for different EuRoC dataset types
+    # ROS topics for different dataset types
     TOPICS = {
         'machine_hall': {
             'cam0': '/cam0/image_raw',
@@ -107,6 +107,10 @@ class EurocBagConverter:
             'cam1': '/cam1/image_raw',
             'imu': '/imu0',
             'pose': '/vicon/firefly_sbx/firefly_sbx',  # geometry_msgs/TransformStamped
+        },
+        'vins_fusion': {
+            'cam0': '/camera/color/image_raw',
+            'pose': '/vins_fusion/imu_propagate',  # nav_msgs/Odometry
         }
     }
     
@@ -178,6 +182,8 @@ class EurocBagConverter:
                 return 'machine_hall'
             elif '/vicon/firefly_sbx/firefly_sbx' in topics:
                 return 'vicon_room'
+            elif '/vins_fusion/imu_propagate' in topics:
+                return 'vins_fusion'
             else:
                 raise ValueError(f"Cannot auto-detect dataset type. Available topics: {list(topics)}")
     
@@ -260,6 +266,20 @@ class EurocBagConverter:
                         z=msg.point.z,
                         qw=1.0, qx=0.0, qy=0.0, qz=0.0  # Identity quaternion
                     )
+                elif self.dataset_type == 'vins_fusion':
+                    # nav_msgs/Odometry: full pose + velocity
+                    pose = PoseData(
+                        timestamp=timestamp_us,
+                        x=msg.pose.pose.position.x,
+                        y=msg.pose.pose.position.y,
+                        z=msg.pose.pose.position.z,
+                        qw=msg.pose.pose.orientation.w,
+                        qx=msg.pose.pose.orientation.x,
+                        qy=msg.pose.pose.orientation.y,
+                        qz=msg.pose.pose.orientation.z,
+                        vx=msg.twist.twist.linear.x,
+                        vy=msg.twist.twist.linear.y,
+                    )
                 else:  # vicon_room
                     # TransformStamped: full pose available
                     pose = PoseData(
@@ -332,6 +352,8 @@ class EurocBagConverter:
     ) -> List[PoseData]:
         """
         Compute velocities and accelerations from position data.
+        For vins_fusion type, velocities are already present from Odometry,
+        so only accelerations are computed.
         
         Args:
             poses: List of PoseData with positions
@@ -344,29 +366,25 @@ class EurocBagConverter:
         if len(poses) < 3:
             return poses
         
-        for i in range(1, len(poses) - 1):
-            # Time differences
-            dt_prev = (poses[i].timestamp - poses[i-1].timestamp) / 1e6  # seconds
-            dt_next = (poses[i+1].timestamp - poses[i].timestamp) / 1e6  # seconds
-            
-            if dt_prev <= 0 or dt_next <= 0:
-                continue
-            
-            # Central difference for velocity
-            vx = (poses[i+1].x - poses[i-1].x) / (dt_prev + dt_next)
-            vy = (poses[i+1].y - poses[i-1].y) / (dt_prev + dt_next)
-            
-            poses[i].vx = vx
-            poses[i].vy = vy
+        has_velocity = self.dataset_type == 'vins_fusion'
         
-        # Handle boundaries
-        if len(poses) >= 2:
-            poses[0].vx = poses[1].vx
-            poses[0].vy = poses[1].vy
-            poses[-1].vx = poses[-2].vx
-            poses[-1].vy = poses[-2].vy
+        if not has_velocity:
+            for i in range(1, len(poses) - 1):
+                dt_prev = (poses[i].timestamp - poses[i-1].timestamp) / 1e6
+                dt_next = (poses[i+1].timestamp - poses[i].timestamp) / 1e6
+                
+                if dt_prev <= 0 or dt_next <= 0:
+                    continue
+                
+                poses[i].vx = (poses[i+1].x - poses[i-1].x) / (dt_prev + dt_next)
+                poses[i].vy = (poses[i+1].y - poses[i-1].y) / (dt_prev + dt_next)
+            
+            if len(poses) >= 2:
+                poses[0].vx = poses[1].vx
+                poses[0].vy = poses[1].vy
+                poses[-1].vx = poses[-2].vx
+                poses[-1].vy = poses[-2].vy
         
-        # Compute accelerations
         for i in range(1, len(poses) - 1):
             dt_prev = (poses[i].timestamp - poses[i-1].timestamp) / 1e6
             dt_next = (poses[i+1].timestamp - poses[i].timestamp) / 1e6
@@ -374,13 +392,9 @@ class EurocBagConverter:
             if dt_prev <= 0 or dt_next <= 0:
                 continue
             
-            ax = (poses[i+1].vx - poses[i-1].vx) / (dt_prev + dt_next)
-            ay = (poses[i+1].vy - poses[i-1].vy) / (dt_prev + dt_next)
-            
-            poses[i].ax = ax
-            poses[i].ay = ay
+            poses[i].ax = (poses[i+1].vx - poses[i-1].vx) / (dt_prev + dt_next)
+            poses[i].ay = (poses[i+1].vy - poses[i-1].vy) / (dt_prev + dt_next)
         
-        # Handle boundaries
         if len(poses) >= 2:
             poses[0].ax = poses[1].ax
             poses[0].ay = poses[1].ay
@@ -610,6 +624,48 @@ class EurocBagConverter:
         return sequence_meta
 
 
+def split_sequences_into_windows(sequences, window_size, stride, min_tail):
+    """
+    Split long sequences into overlapping windows for distributed training.
+    
+    Args:
+        sequences: List of sequence dicts with 'CAM_F0', 'scene', 'data_root', 'pose'
+        window_size: Number of frames per window
+        stride: Step size between windows
+        min_tail: Minimum frames required for the trailing partial window
+        
+    Returns:
+        List of windowed sequence dicts
+    """
+    windowed = []
+    for seq in sequences:
+        frames = seq['CAM_F0']
+        n_frames = len(frames)
+        scene_base = seq['scene'].replace('_scene_0', '')
+
+        win_idx = 0
+        start = 0
+        while start + window_size <= n_frames:
+            windowed.append({
+                'CAM_F0': frames[start:start + window_size],
+                'scene': f'{scene_base}_scene_{win_idx}',
+                'data_root': seq['data_root'],
+                'pose': seq['pose'],
+            })
+            win_idx += 1
+            start += stride
+
+        if start < n_frames and (n_frames - start) >= min_tail:
+            windowed.append({
+                'CAM_F0': frames[start:],
+                'scene': f'{scene_base}_scene_{win_idx}',
+                'data_root': seq['data_root'],
+                'pose': seq['pose'],
+            })
+
+    return windowed
+
+
 def convert_all_datasets(config_path: str):
     """
     Convert all datasets specified in the config file.
@@ -648,11 +704,34 @@ def convert_all_datasets(config_path: str):
         sequence_meta = converter.convert()
         all_sequences.append(sequence_meta)
     
-    # Save combined meta JSON
-    meta_json_path = os.path.join(output_dir, 'test_meta.json')
-    with open(meta_json_path, 'w') as f:
+    # Split into overlapping windows if configured
+    window_size = config.get('split_window_size')
+    if window_size is not None:
+        stride = config.get('split_window_stride', window_size // 2)
+        min_tail = config.get('split_min_tail', 56)
+        print(f"\nSplitting {len(all_sequences)} sequences into windows "
+              f"(size={window_size}, stride={stride}, min_tail={min_tail})...")
+        all_sequences = split_sequences_into_windows(
+            all_sequences, window_size, stride, min_tail)
+        print(f"  -> {len(all_sequences)} sub-sequences after windowing")
+
+    # Save as train_meta.json
+    train_meta_path = os.path.join(output_dir, 'train_meta.json')
+    with open(train_meta_path, 'w') as f:
         json.dump(all_sequences, f, indent=2)
-    print(f"\nSaved combined meta to: {meta_json_path}")
+    print(f"\nSaved train meta to: {train_meta_path}")
+
+    # Create symlinks for test: test_meta.json -> train_meta.json, test_ego_meta -> ego_meta
+    test_meta_link = os.path.join(output_dir, 'test_meta.json')
+    test_ego_meta_link = os.path.join(output_dir, 'test_ego_meta')
+    ego_meta_dir = os.path.join(output_dir, 'ego_meta')
+
+    for link_path, target in [(test_meta_link, 'train_meta.json'),
+                               (test_ego_meta_link, 'ego_meta')]:
+        if os.path.islink(link_path) or os.path.exists(link_path):
+            os.remove(link_path)
+        os.symlink(target, link_path)
+        print(f"Symlink: {link_path} -> {target}")
     
     print(f"\n{'='*60}")
     print(f"All conversions complete!")
@@ -692,7 +771,7 @@ def main():
     parser.add_argument(
         '--dataset_type',
         type=str,
-        choices=['auto', 'machine_hall', 'vicon_room'],
+        choices=['auto', 'machine_hall', 'vicon_room', 'vins_fusion'],
         default='auto',
         help='Dataset type'
     )
@@ -752,11 +831,20 @@ def main():
         
         sequence_meta = converter.convert()
         
-        # Save single sequence meta
-        meta_json_path = os.path.join(args.output_dir, 'test_meta.json')
+        # Save as train_meta.json
+        meta_json_path = os.path.join(args.output_dir, 'train_meta.json')
         with open(meta_json_path, 'w') as f:
             json.dump([sequence_meta], f, indent=2)
         print(f"Saved meta to: {meta_json_path}")
+
+        # Create symlinks for test
+        for link_name, target in [('test_meta.json', 'train_meta.json'),
+                                   ('test_ego_meta', 'ego_meta')]:
+            link_path = os.path.join(args.output_dir, link_name)
+            if os.path.islink(link_path) or os.path.exists(link_path):
+                os.remove(link_path)
+            os.symlink(target, link_path)
+            print(f"Symlink: {link_path} -> {target}")
 
 
 if __name__ == '__main__':

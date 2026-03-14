@@ -1,0 +1,45 @@
+# Self-collected UAV bag to Epona Dataset Conversion Configuration
+# ================================================================
+# For bags recorded with RealSense camera + VINS-Fusion odometry
+
+# Output directory for converted Epona dataset
+output_dir: /home/dataset-local/uav_self_epona_dataset
+
+# Image conversion settings
+convert_grayscale_to_rgb: false  # Already color images from RealSense
+image_quality: 95
+
+# Image resize settings
+resize_images: [512, 1024]
+resize_interpolation: 'linear'
+
+# Frame rate settings (original ~30 Hz, downsample to 10 Hz)
+target_fps: 10
+
+# Sequence windowing for distributed training
+# Splits long sequences into overlapping windows so that
+# total sub-sequences >= num_gpus (required by MixedBatchSampler)
+# Set to null to disable splitting
+split_window_size: 120    # frames per window
+split_window_stride: 60   # stride between windows
+split_min_tail: 56        # minimum frames for the trailing window
+
+# List of self-collected datasets to convert
+datasets:
+  # Factory sequences
+  - bag_path: /home/dataset-local/uav_selfDatasets/factory/factory0000.bag
+    scene_name: factory0000
+    dataset_type: vins_fusion
+
+  - bag_path: /home/dataset-local/uav_selfDatasets/factory/factory0001.bag
+    scene_name: factory0001
+    dataset_type: vins_fusion
+
+  # Room sequences
+  - bag_path: /home/dataset-local/uav_selfDatasets/room/room0.bag
+    scene_name: room0
+    dataset_type: vins_fusion
+
+  - bag_path: /home/dataset-local/uav_selfDatasets/room/room1.bag
+    scene_name: room1
+    dataset_type: vins_fusion
